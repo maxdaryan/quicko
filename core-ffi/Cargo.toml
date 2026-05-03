@@ -1,0 +1,18 @@
+[package]
+name = "quicko2-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "FFI bridge for Quicko2 — PyO3 (Python) and UniFFI (Kotlin) bindings"
+
+[lib]
+name = "quicko2_ffi"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+quicko2-core = { path = "../core" }
+pyo3 = { workspace = true }
+tokio = { workspace = true }
+
+[build-dependencies]
+pyo3-build-config = "0.22"

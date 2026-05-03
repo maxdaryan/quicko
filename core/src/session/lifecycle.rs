@@ -64,10 +64,10 @@ impl SessionLifecycle {
                 | (SessionState::Connecting, SessionState::Destroyed) // failed to connect
                 | (SessionState::Connected, SessionState::Chatting)
                 | (SessionState::Connected, SessionState::Reconnecting)
-                | (SessionState::Connected, SessionState::Destroying)
+                | (SessionState::Connected, SessionState::Destroyed)
                 | (SessionState::Chatting, SessionState::Connected) // peer left
                 | (SessionState::Chatting, SessionState::Reconnecting)
-                | (SessionState::Chatting, SessionState::Destroying)
+                | (SessionState::Chatting, SessionState::Destroyed)
                 | (SessionState::Reconnecting, SessionState::Connected)
                 | (SessionState::Reconnecting, SessionState::Expired)
                 | (SessionState::Reconnecting, SessionState::Destroyed)
@@ -106,9 +106,6 @@ impl SessionState {
     }
 }
 
-// We need to add Destroying as a valid intermediate state
-// For now, map it to Destroyed in transitions
-use SessionState::Destroyed as Destroying;
 
 impl Default for SessionLifecycle {
     fn default() -> Self {

@@ -49,7 +49,7 @@ impl SessionIdentity {
         // Generate 128-bit random session ID
         let mut id_bytes = [0u8; 16];
         rng.fill_bytes(&mut id_bytes);
-        let session_id = hex::encode(id_bytes);
+        let session_id = hex::encode(&id_bytes);
 
         // Generate display name: "Adjective Animal #XXXX"
         let adj = ADJECTIVES[rng.gen_range(0..ADJECTIVES.len())];

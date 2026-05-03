@@ -1,0 +1,23 @@
+# Build artifacts
+/target/
+*.o
+*.so
+*.dylib
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

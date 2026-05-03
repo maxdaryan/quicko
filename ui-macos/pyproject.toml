@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "quicko2-ui"
+version = "0.1.0"
+description = "Quicko2 macOS UI — lightweight ephemeral messaging"
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt6>=6.6",
+]
+
+[project.scripts]
+quicko2 = "quicko_ui.app:main"
+
+[tool.maturin]
+manifest-path = "../core-ffi/Cargo.toml"
+python-source = "src"
+ 
