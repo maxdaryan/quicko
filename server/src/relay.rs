@@ -2,6 +2,7 @@
 //!
 //! The relay is zero-knowledge: it never decrypts message content,
 //! only reads the frame header to determine routing.
+//! Also handles the QuickoKey directory (register, lookup, call).
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -108,7 +109,6 @@ pub async fn handle_message(
 
             // Broadcast the key exchange to all peers via the sender's session
             if let Some(ref sid) = session_id {
-                // Use the sender_id from the payload to find their invite code
                 state
                     .registry
                     .broadcast_from(sid, data.to_vec())
@@ -127,7 +127,119 @@ pub async fn handle_message(
             if let Some(ref sid) = session_id {
                 tracing::info!("Client {} leaving", &sid[..8.min(sid.len())]);
                 state.registry.unregister(sid);
+                state.directory.set_offline_by_session(sid);
                 *session_id = None;
+            }
+        }
+
+        // --- QuickoKey Directory Operations ---
+
+        MessageType::RegisterKey => {
+            let reg: payloads::RegisterKeyPayload =
+                FrameCodec::deserialize_payload(&frame.payload)?;
+
+            tracing::info!("RegisterKey: {}", &reg.quicko_key);
+
+            let sid = session_id.clone().unwrap_or_default();
+            state.directory.register(
+                reg.quicko_key.clone(),
+                reg.public_key,
+                reg.display_name,
+                sid,
+            );
+
+            // Send ack
+            let ack = payloads::RegisterKeyAckPayload {
+                accepted: true,
+                error: None,
+            };
+            let ack_payload = FrameCodec::serialize_payload(&ack)?;
+            let ack_frame = quicko2_core::protocol::frame::Frame::new(
+                MessageType::RegisterKey,
+                ack_payload,
+            )?;
+            let _ = client_tx.send(FrameCodec::encode(&ack_frame)).await;
+        }
+
+        MessageType::LookupKey => {
+            let lookup: payloads::LookupKeyPayload =
+                FrameCodec::deserialize_payload(&frame.payload)?;
+
+            tracing::debug!("LookupKey: {}", &lookup.quicko_key);
+
+            let response = if let Some(entry) = state.directory.lookup(&lookup.quicko_key) {
+                payloads::LookupResponsePayload {
+                    quicko_key: lookup.quicko_key,
+                    found: true,
+                    public_key: Some(entry.public_key),
+                    display_name: Some(entry.display_name),
+                    is_online: entry.is_online,
+                }
+            } else {
+                payloads::LookupResponsePayload {
+                    quicko_key: lookup.quicko_key,
+                    found: false,
+                    public_key: None,
+                    display_name: None,
+                    is_online: false,
+                }
+            };
+
+            let resp_payload = FrameCodec::serialize_payload(&response)?;
+            let resp_frame = quicko2_core::protocol::frame::Frame::new(
+                MessageType::LookupResponse,
+                resp_payload,
+            )?;
+            let _ = client_tx.send(FrameCodec::encode(&resp_frame)).await;
+        }
+
+        MessageType::UnregisterKey => {
+            let unreg: payloads::UnregisterKeyPayload =
+                FrameCodec::deserialize_payload(&frame.payload)?;
+
+            tracing::info!("UnregisterKey: {}", &unreg.quicko_key);
+            state.directory.unregister(&unreg.quicko_key);
+        }
+
+        MessageType::CallPeer => {
+            let call: payloads::CallPeerPayload =
+                FrameCodec::deserialize_payload(&frame.payload)?;
+
+            tracing::info!("CallPeer: {} → {}", &call.caller_key, &call.callee_key);
+
+            // Look up the callee's session and forward the call
+            if let Some(callee_sid) = state.directory.get_session_id(&call.callee_key) {
+                state.registry.send_to(&callee_sid, data.to_vec()).await;
+            } else {
+                // Callee not online — send error back to caller
+                let err = payloads::CallResponsePayload {
+                    caller_key: call.caller_key,
+                    callee_key: call.callee_key,
+                    accepted: false,
+                    responder_public_key: None,
+                    responder_display_name: None,
+                };
+                let err_payload = FrameCodec::serialize_payload(&err)?;
+                let err_frame = quicko2_core::protocol::frame::Frame::new(
+                    MessageType::CallResponse,
+                    err_payload,
+                )?;
+                let _ = client_tx.send(FrameCodec::encode(&err_frame)).await;
+            }
+        }
+
+        MessageType::CallResponse => {
+            let resp: payloads::CallResponsePayload =
+                FrameCodec::deserialize_payload(&frame.payload)?;
+
+            tracing::info!(
+                "CallResponse: {} → {} (accepted: {})",
+                &resp.callee_key, &resp.caller_key, resp.accepted
+            );
+
+            // Forward the response to the caller
+            if let Some(caller_sid) = state.directory.get_session_id(&resp.caller_key) {
+                state.registry.send_to(&caller_sid, data.to_vec()).await;
             }
         }
 
@@ -138,3 +250,4 @@ pub async fn handle_message(
 
     Ok(())
 }
+

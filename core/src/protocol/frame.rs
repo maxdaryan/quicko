@@ -47,6 +47,18 @@ pub enum MessageType {
     PeerLeft = 0x33,
     /// X25519 key exchange.
     KeyExchange = 0x40,
+    /// Register QuickoKey on server directory.
+    RegisterKey = 0x50,
+    /// Look up a QuickoKey in the directory.
+    LookupKey = 0x51,
+    /// Server response to a key lookup.
+    LookupResponse = 0x52,
+    /// Remove QuickoKey from directory.
+    UnregisterKey = 0x53,
+    /// Initiate a "call" (connection request) to a QuickoKey.
+    CallPeer = 0x54,
+    /// Accept/reject a call.
+    CallResponse = 0x55,
     /// Error from server.
     Error = 0xFF,
 }
@@ -66,6 +78,12 @@ impl MessageType {
             0x32 => Ok(Self::PeerJoined),
             0x33 => Ok(Self::PeerLeft),
             0x40 => Ok(Self::KeyExchange),
+            0x50 => Ok(Self::RegisterKey),
+            0x51 => Ok(Self::LookupKey),
+            0x52 => Ok(Self::LookupResponse),
+            0x53 => Ok(Self::UnregisterKey),
+            0x54 => Ok(Self::CallPeer),
+            0x55 => Ok(Self::CallResponse),
             0xFF => Ok(Self::Error),
             _ => Err(QuickoError::UnknownMessageType(b)),
         }
@@ -192,6 +210,64 @@ pub mod payloads {
         pub code: u32,
         pub message: String,
     }
+
+    // --- QuickoKey directory payloads ---
+
+    /// Register a QuickoKey on the server directory.
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct RegisterKeyPayload {
+        pub quicko_key: String,
+        pub public_key: Vec<u8>,
+        pub display_name: String,
+    }
+
+    /// Register acknowledgment.
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct RegisterKeyAckPayload {
+        pub accepted: bool,
+        pub error: Option<String>,
+    }
+
+    /// Look up a QuickoKey.
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct LookupKeyPayload {
+        pub quicko_key: String,
+    }
+
+    /// Lookup response from server.
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct LookupResponsePayload {
+        pub quicko_key: String,
+        pub found: bool,
+        pub public_key: Option<Vec<u8>>,
+        pub display_name: Option<String>,
+        pub is_online: bool,
+    }
+
+    /// Unregister a QuickoKey.
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct UnregisterKeyPayload {
+        pub quicko_key: String,
+    }
+
+    /// Initiate a call to another QuickoKey.
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct CallPeerPayload {
+        pub caller_key: String,
+        pub callee_key: String,
+        pub caller_public_key: Vec<u8>,
+        pub caller_display_name: String,
+    }
+
+    /// Response to a call request.
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct CallResponsePayload {
+        pub caller_key: String,
+        pub callee_key: String,
+        pub accepted: bool,
+        pub responder_public_key: Option<Vec<u8>>,
+        pub responder_display_name: Option<String>,
+    }
 }
 
 #[cfg(test)]
@@ -212,6 +288,12 @@ mod tests {
             MessageType::PeerJoined,
             MessageType::PeerLeft,
             MessageType::KeyExchange,
+            MessageType::RegisterKey,
+            MessageType::LookupKey,
+            MessageType::LookupResponse,
+            MessageType::UnregisterKey,
+            MessageType::CallPeer,
+            MessageType::CallResponse,
             MessageType::Error,
         ];
 

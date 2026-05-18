@@ -4,6 +4,7 @@
 //! between clients. It never decrypts, never stores — just relays.
 
 mod config;
+mod directory;
 mod listener;
 mod rate_limit;
 mod registry;
@@ -13,11 +14,13 @@ use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 use crate::config::ServerConfig;
+use crate::directory::KeyDirectory;
 use crate::registry::SessionRegistry;
 
 /// Shared application state.
 pub struct AppState {
     pub registry: SessionRegistry,
+    pub directory: KeyDirectory,
     pub config: ServerConfig,
 }
 
@@ -36,6 +39,7 @@ async fn main() {
 
     let state = Arc::new(AppState {
         registry: SessionRegistry::new(),
+        directory: KeyDirectory::new(),
         config,
     });
 

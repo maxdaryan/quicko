@@ -42,6 +42,45 @@ pub fn derive_session_keys(
     Ok((enc_key, auth_key))
 }
 
+// --- QuickoKey derivation ---
+
+/// Domain separation context for deriving X25519 secrets from a QuickoKey.
+pub const CONTEXT_QUICKOKEY_X25519: &[u8] = b"quicko2-qk-x25519-v1";
+
+/// Domain separation context for deriving session salts from a QuickoKey.
+pub const CONTEXT_QUICKOKEY_SALT: &[u8] = b"quicko2-qk-salt-v1";
+
+/// Domain separation context for seed phrase → QuickoKey derivation.
+pub const CONTEXT_QUICKOKEY_SEED: &[u8] = b"quicko2-qk-seed-v1";
+
+/// Derive a 256-bit X25519 static secret from a 128-bit QuickoKey.
+///
+/// Uses HKDF-SHA256 to expand the 128-bit key to 256 bits with
+/// domain-specific context to ensure independence from other derived values.
+pub fn derive_x25519_from_quickokey(quickokey_bytes: &[u8; 16]) -> Result<[u8; 32]> {
+    // Pad the 16-byte key to 32 bytes for HKDF input (zero-padded)
+    let mut ikm = [0u8; 32];
+    ikm[..16].copy_from_slice(quickokey_bytes);
+
+    let hk = Hkdf::<Sha256>::new(None, &ikm);
+    let mut secret = [0u8; 32];
+    hk.expand(CONTEXT_QUICKOKEY_X25519, &mut secret)
+        .map_err(|_| QuickoError::KeyDerivationFailed)?;
+    Ok(secret)
+}
+
+/// Derive a 256-bit session salt from a 128-bit QuickoKey.
+pub fn derive_session_salt_from_quickokey(quickokey_bytes: &[u8; 16]) -> Result<[u8; 32]> {
+    let mut ikm = [0u8; 32];
+    ikm[..16].copy_from_slice(quickokey_bytes);
+
+    let hk = Hkdf::<Sha256>::new(None, &ikm);
+    let mut salt = [0u8; 32];
+    hk.expand(CONTEXT_QUICKOKEY_SALT, &mut salt)
+        .map_err(|_| QuickoError::KeyDerivationFailed)?;
+    Ok(salt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -76,6 +76,30 @@ impl SessionIdentity {
         }
     }
 
+    /// Create a session identity derived from a QuickoKey.
+    ///
+    /// All identity fields (session_id, display_name, keypair) are
+    /// deterministically derived from the key. The invite_code is
+    /// set to the formatted QuickoKey itself.
+    pub fn from_quickokey(
+        key: &crate::quickokey::QuickoKey,
+        ttl: Duration,
+    ) -> crate::error::Result<Self> {
+        let session_id = key.format();
+        let display_name = key.derive_display_name();
+        let invite_code = key.format(); // QuickoKey IS the invite code
+        let keypair = KeyPair::from_quickokey(key.as_bytes())?;
+
+        Ok(Self {
+            session_id,
+            display_name,
+            invite_code,
+            keypair,
+            created_at: Instant::now(),
+            ttl,
+        })
+    }
+
     /// Get the session ID (hex string).
     pub fn session_id(&self) -> &str {
         &self.session_id

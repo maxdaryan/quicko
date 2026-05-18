@@ -31,6 +31,9 @@ pub enum QuickoError {
     #[error("Invalid invite code")]
     InvalidInviteCode,
 
+    #[error("Invalid QuickoKey: {0}")]
+    InvalidQuickoKey(String),
+
     // -- Network errors --
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),

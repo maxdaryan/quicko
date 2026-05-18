@@ -39,6 +39,18 @@ impl KeyPair {
         let shared = self.secret.diffie_hellman(&peer_key);
         *shared.as_bytes()
     }
+
+    /// Create a deterministic X25519 keypair from a QuickoKey's raw bytes.
+    ///
+    /// Uses HKDF-SHA256 to expand the 128-bit QuickoKey to a 256-bit
+    /// X25519 static secret. The same QuickoKey always produces the
+    /// same keypair.
+    pub fn from_quickokey(quickokey_bytes: &[u8; 16]) -> crate::error::Result<Self> {
+        let secret_bytes = crate::crypto::kdf::derive_x25519_from_quickokey(quickokey_bytes)?;
+        let secret = StaticSecret::from(secret_bytes);
+        let public = PublicKey::from(&secret);
+        Ok(Self { secret, public })
+    }
 }
 
 #[cfg(test)]

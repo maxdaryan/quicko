@@ -4,11 +4,12 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
+use tracing::{debug, error, info, warn};
 
-use crate::error::{QuickoError, Result};
 use super::transport::TransportEvent;
 
 /// Reconnection configuration.
+#[derive(Debug, Clone)]
 pub struct ReconnectConfig {
     /// Initial delay between reconnect attempts.
     pub initial_delay: Duration,
@@ -23,9 +24,9 @@ pub struct ReconnectConfig {
 impl Default for ReconnectConfig {
     fn default() -> Self {
         Self {
-            initial_delay: Duration::from_millis(100),
+            initial_delay: Duration::from_millis(500),
             max_delay: Duration::from_secs(30),
-            multiplier: 2.0,
+            multiplier: 1.5,
             max_attempts: 0, // infinite
         }
     }
@@ -35,7 +36,6 @@ impl Default for ReconnectConfig {
 pub struct ConnectionManager {
     server_url: String,
     reconnect_config: ReconnectConfig,
-    connected: bool,
 }
 
 impl ConnectionManager {
@@ -44,7 +44,6 @@ impl ConnectionManager {
         Self {
             server_url,
             reconnect_config: ReconnectConfig::default(),
-            connected: false,
         }
     }
 
@@ -53,96 +52,121 @@ impl ConnectionManager {
         Self {
             server_url,
             reconnect_config: config,
-            connected: false,
         }
     }
 
-    /// Connect to the relay server.
+    /// Start the connection supervisor.
     ///
     /// Returns channels for sending/receiving transport events.
-    pub async fn connect(
-        &mut self,
-    ) -> Result<(
+    /// The supervisor runs in a background task and automatically reconnects.
+    pub fn start(
+        &self,
+    ) -> (
         mpsc::Sender<Vec<u8>>,
         mpsc::Receiver<TransportEvent>,
-    )> {
-        let (ws_stream, _) = connect_async(&self.server_url)
-            .await
-            .map_err(|e| QuickoError::ConnectionFailed(e.to_string()))?;
-
-        let (mut ws_write, mut ws_read) = ws_stream.split();
-
-        // Channel for outbound messages (UI → WebSocket)
-        let (outbound_tx, mut outbound_rx) = mpsc::channel::<Vec<u8>>(256);
-
-        // Channel for transport events (WebSocket → UI)
+    ) {
+        let (outbound_tx, outbound_rx) = mpsc::channel::<Vec<u8>>(256);
         let (event_tx, event_rx) = mpsc::channel::<TransportEvent>(256);
 
-        self.connected = true;
-        let event_tx_clone = event_tx.clone();
+        let server_url = self.server_url.clone();
+        let config = self.reconnect_config.clone();
 
-        // Spawn writer task
         tokio::spawn(async move {
-            while let Some(data) = outbound_rx.recv().await {
-                if ws_write
-                    .send(WsMessage::Binary(data.into()))
-                    .await
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
+            let mut outbound_rx = outbound_rx;
+            let mut attempt = 0;
 
-        // Spawn reader task
-        tokio::spawn(async move {
-            while let Some(msg_result) = ws_read.next().await {
-                match msg_result {
-                    Ok(WsMessage::Binary(data)) => {
-                        let _ = event_tx_clone
-                            .send(TransportEvent::MessageReceived(data.to_vec()))
-                            .await;
-                    }
-                    Ok(WsMessage::Close(_)) => {
-                        let _ = event_tx_clone
-                            .send(TransportEvent::Disconnected("Server closed connection".into()))
-                            .await;
-                        break;
-                    }
-                    Ok(WsMessage::Ping(data)) => {
-                        // Pong is handled automatically by tungstenite
-                        let _ = event_tx_clone
-                            .send(TransportEvent::PingReceived(data.to_vec()))
-                            .await;
+            loop {
+                info!("Connecting to relay server at {} (attempt {})...", server_url, attempt + 1);
+                
+                match connect_async(&server_url).await {
+                    Ok((ws_stream, _)) => {
+                        info!("Connected to relay server");
+                        attempt = 0;
+                        let _ = event_tx.send(TransportEvent::Connected).await;
+
+                        let (mut ws_write, mut ws_read) = ws_stream.split();
+                        let (internal_tx, mut internal_rx) = mpsc::channel::<Vec<u8>>(256);
+
+                        // Bridge outbound_rx to ws_write, but allow it to survive disconnects
+                        // We need to carefully handle the ownership here.
+                        // Instead of giving outbound_rx to the writer task, we'll use a bridge.
+                        
+                        let event_tx_inner = event_tx.clone();
+                        
+                        // Reader task
+                        let reader_event_tx = event_tx.clone();
+                        let mut reader_handle = tokio::spawn(async move {
+                            while let Some(msg_result) = ws_read.next().await {
+                                match msg_result {
+                                    Ok(WsMessage::Binary(data)) => {
+                                        let _ = reader_event_tx.send(TransportEvent::MessageReceived(data.to_vec())).await;
+                                    }
+                                    Ok(WsMessage::Close(_)) => {
+                                        warn!("Server closed connection");
+                                        break;
+                                    }
+                                    Ok(WsMessage::Ping(data)) => {
+                                        let _ = reader_event_tx.send(TransportEvent::PingReceived(data.to_vec())).await;
+                                    }
+                                    Err(e) => {
+                                        error!("WebSocket error: {}", e);
+                                        break;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        });
+
+                        // Writer task bridge
+                        let mut writer_handle = tokio::spawn(async move {
+                            while let Some(data) = internal_rx.recv().await {
+                                if ws_write.send(WsMessage::Binary(data.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        });
+
+                        // Supervisor loop for this specific connection
+                        loop {
+                            tokio::select! {
+                                Some(data) = outbound_rx.recv() => {
+                                    if internal_tx.send(data).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                _ = &mut reader_handle => {
+                                    debug!("Reader task finished");
+                                    break;
+                                }
+                                _ = &mut writer_handle => {
+                                    debug!("Writer task finished");
+                                    break;
+                                }
+                            }
+                        }
+
+                        let _ = event_tx_inner.send(TransportEvent::Disconnected("Connection lost".into())).await;
                     }
                     Err(e) => {
-                        let _ = event_tx_clone
-                            .send(TransportEvent::Disconnected(e.to_string()))
-                            .await;
-                        break;
+                        error!("Failed to connect: {}", e);
                     }
-                    _ => {} // Ignore text, pong, etc.
                 }
+
+                attempt += 1;
+                if config.max_attempts > 0 && attempt >= config.max_attempts {
+                    error!("Max reconnection attempts reached ({})", config.max_attempts);
+                    let _ = event_tx.send(TransportEvent::ReconnectionFailed).await;
+                    break;
+                }
+
+                let delay = backoff_delay(&config, attempt);
+                warn!("Reconnecting in {:?}...", delay);
+                let _ = event_tx.send(TransportEvent::Reconnecting(attempt)).await;
+                tokio::time::sleep(delay).await;
             }
         });
 
-        // Send connected event
-        let _ = event_tx.send(TransportEvent::Connected).await;
-
-        Ok((outbound_tx, event_rx))
-    }
-
-    /// Calculate backoff delay for a given attempt number.
-    pub fn backoff_delay(&self, attempt: u32) -> Duration {
-        let delay_ms = self.reconnect_config.initial_delay.as_millis() as f64
-            * self.reconnect_config.multiplier.powi(attempt as i32);
-        let capped_ms = delay_ms.min(self.reconnect_config.max_delay.as_millis() as f64);
-        Duration::from_millis(capped_ms as u64)
-    }
-
-    /// Check if connected.
-    pub fn is_connected(&self) -> bool {
-        self.connected
+        (outbound_tx, event_rx)
     }
 
     /// Get the server URL.
@@ -151,28 +175,41 @@ impl ConnectionManager {
     }
 }
 
+/// Calculate backoff delay for a given attempt number.
+fn backoff_delay(config: &ReconnectConfig, attempt: u32) -> Duration {
+    let delay_ms = config.initial_delay.as_millis() as f64
+        * config.multiplier.powi(attempt as i32);
+    let capped_ms = delay_ms.min(config.max_delay.as_millis() as f64);
+    Duration::from_millis(capped_ms as u64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_backoff_delay() {
-        let cm = ConnectionManager::new("ws://localhost:9900".into());
+        let config = ReconnectConfig {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(30),
+            multiplier: 2.0,
+            max_attempts: 0,
+        };
 
-        let d0 = cm.backoff_delay(0);
-        let d1 = cm.backoff_delay(1);
-        let d2 = cm.backoff_delay(2);
-
-        assert_eq!(d0, Duration::from_millis(100));
-        assert_eq!(d1, Duration::from_millis(200));
-        assert_eq!(d2, Duration::from_millis(400));
+        assert_eq!(backoff_delay(&config, 0), Duration::from_millis(100));
+        assert_eq!(backoff_delay(&config, 1), Duration::from_millis(200));
+        assert_eq!(backoff_delay(&config, 2), Duration::from_millis(400));
     }
 
     #[test]
     fn test_backoff_capped() {
-        let cm = ConnectionManager::new("ws://localhost:9900".into());
+        let config = ReconnectConfig {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(1),
+            multiplier: 2.0,
+            max_attempts: 0,
+        };
 
-        let d20 = cm.backoff_delay(20);
-        assert!(d20 <= Duration::from_secs(30));
+        assert_eq!(backoff_delay(&config, 10), Duration::from_secs(1));
     }
 }
