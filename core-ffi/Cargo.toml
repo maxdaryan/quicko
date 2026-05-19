@@ -7,12 +7,18 @@ description = "FFI bridge for Quicko2 — PyO3 (Python) and UniFFI (Kotlin) bind
 
 [lib]
 name = "quicko2_ffi"
-crate-type = ["cdylib", "lib"]
+crate-type = ["cdylib", "lib", "staticlib"]
+
+[features]
+default = ["pyo3"]
+pyo3 = []
 
 [dependencies]
 quicko2-core = { path = "../core" }
 pyo3 = { workspace = true }
 tokio = { workspace = true }
+uniffi = { workspace = true, features = ["cli"] }
+thiserror = { workspace = true }
 
 [build-dependencies]
 pyo3-build-config = "0.22"
