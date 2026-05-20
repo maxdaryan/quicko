@@ -7,7 +7,7 @@ set -e
 
 echo "🚀 Building Quicko2 Core and Server..."
 cargo build -p quicko2-server
-cargo rustc -p quicko2-ffi --crate-type cdylib -- -C link-arg=-undefined -C link-arg=dynamic_lookup
+cargo rustc -p quicko2-ffi --lib --crate-type cdylib -- -C link-arg=-undefined -C link-arg=dynamic_lookup
 
 echo "📦 Preparing Python module..."
 cp target/debug/libquicko2_ffi.dylib ui-macos/src/quicko2_core.so

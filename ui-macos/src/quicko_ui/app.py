@@ -7,10 +7,9 @@ to the Rust core via PyO3 bindings.
 import sys
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
 
 from .main_window import MainWindow
-from .theme import apply_dark_theme
+from .theme import apply_theme
 
 
 def main():
@@ -21,13 +20,8 @@ def main():
     app.setApplicationVersion("0.1.0")
     app.setOrganizationName("Quicko")
 
-    # Set default font
-    font = QFont("SF Pro Display", 13)
-    font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
-    app.setFont(font)
-
-    # Apply dark theme
-    apply_dark_theme(app)
+    # Apply dark theme (font is resolved inside apply_theme now)
+    apply_theme(app)
 
     # Create and show main window
     window = MainWindow()

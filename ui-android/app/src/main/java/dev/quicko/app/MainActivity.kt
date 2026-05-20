@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.quicko.app.viewmodel.QuickoViewModel
 
@@ -48,6 +49,24 @@ fun QuickoAppScreen(viewModel: QuickoViewModel = viewModel()) {
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Text(
+            text = """
+                /\_____/\
+               /  o   o  \
+              ( ==  ^  == )
+               )         (
+              (           )
+             ( (  )   (  ) )
+            (__(__)___(__)__)
+            """.trimIndent(),
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.secondary
+            )
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+
         Text(
             text = "Quicko2 Android",
             style = MaterialTheme.typography.headlineMedium

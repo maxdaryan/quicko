@@ -2,17 +2,52 @@
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QStackedWidget, QStatusBar, QLabel,
+    QStackedWidget, QStatusBar, QLabel, QGraphicsDropShadowEffect,
+    QGraphicsOpacityEffect, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QSize
+from PyQt6.QtGui import QAction, QColor, QPainter, QLinearGradient, QPen, QFont
 
 from .widgets.session_panel import SessionPanel
 from .widgets.chat_input import ChatInput
 from .widgets.message_bubble import MessageList
 from .widgets.status_bar import ConnectionStatusBar
 from .widgets.sidebar import Sidebar
-from .theme import COLORS
+from .theme import theme_manager, MONO_FONT_STACK
+
+
+class GlowDot(QWidget):
+    """A small animated glowing dot for the welcome screen."""
+    
+    def __init__(self, color: str = "#7C6CF7", size: int = 8, parent=None):
+        super().__init__(parent)
+        self.dot_color = QColor(color)
+        self.dot_size = size
+        self.setFixedSize(size + 4, size + 4)
+        
+        # Pulse animation via opacity
+        self._opacity_effect = QGraphicsOpacityEffect(self)
+        self._opacity_effect.setOpacity(0.6)
+        self.setGraphicsEffect(self._opacity_effect)
+        
+        self._pulse = QPropertyAnimation(self._opacity_effect, b"opacity")
+        self._pulse.setDuration(2000)
+        self._pulse.setStartValue(0.3)
+        self._pulse.setEndValue(1.0)
+        self._pulse.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self._pulse.setLoopCount(-1)  # Infinite
+        # Make it ping-pong by reversing direction each cycle
+        self._pulse.finished.connect(lambda: None)
+        self._pulse.start()
+    
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self.dot_color)
+        x = (self.width() - self.dot_size) // 2
+        y = (self.height() - self.dot_size) // 2
+        painter.drawEllipse(x, y, self.dot_size, self.dot_size)
 
 
 class MainWindow(QMainWindow):
@@ -21,8 +56,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Quicko2")
-        self.setMinimumSize(800, 600)  # Wider for sidebar
-        self.resize(1000, 720)
+        self.setMinimumSize(900, 640)
+        self.resize(1060, 760)
 
         # Session data
         self.sessions = {}  # id -> {info, message_list}
@@ -39,6 +74,73 @@ class MainWindow(QMainWindow):
 
         self._setup_ui()
         self._setup_menu()
+        self.update_theme()
+        theme_manager.theme_changed.connect(self.update_theme)
+
+    def update_theme(self):
+        self.welcome_widget.setStyleSheet(f"background-color: {theme_manager.color('bg_primary')};")
+        self.cat_label.setStyleSheet(
+            f"font-family: {MONO_FONT_STACK}; "
+            f"font-size: 16px; "
+            f"color: {theme_manager.color('accent')}; "
+            f"line-height: 1.4; "
+            f"letter-spacing: 0px; "
+            f"background: transparent;"
+        )
+        self.logo_label.setStyleSheet(
+            f"font-size: 56px; "
+            f"font-weight: 800; "
+            f"color: {theme_manager.color('accent')}; "
+            f"background: transparent; "
+            f"letter-spacing: -1px;"
+        )
+        self.logo_glow.setColor(QColor(theme_manager.color('accent')))
+        
+        self.tagline.setStyleSheet(
+            f"color: {theme_manager.color('text_muted')}; "
+            f"font-size: 14px; "
+            f"font-weight: 400; "
+            f"letter-spacing: 3px; "
+            f"text-transform: uppercase; "
+            f"background: transparent;"
+        )
+        
+        self.hint.setStyleSheet(
+            f"color: {theme_manager.color('text_muted')}; "
+            f"font-size: 13px; "
+            f"background: {theme_manager.color('accent_subtle')}; "
+            f"padding: 10px 24px; "
+            f"border-radius: 20px; "
+            f"border: 1px solid {theme_manager.color('border')};"
+        )
+        
+        self.version_label.setStyleSheet(
+            f"color: {theme_manager.color('text_muted')}; "
+            f"font-size: 11px; "
+            f"background: transparent; "
+            f"padding-bottom: 12px;"
+        )
+        
+        self.chat_header.setStyleSheet(
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            f"stop:0 {theme_manager.color('bg_secondary')}, stop:1 {theme_manager.color('bg_surface')}); "
+            f"border-bottom: 1px solid {theme_manager.color('border')};"
+        )
+        
+        self.peer_name_label.setStyleSheet(
+            f"font-size: 16px; font-weight: 600; "
+            f"color: {theme_manager.color('text_primary')}; background: transparent;"
+        )
+        
+        self.session_code_label.setStyleSheet(
+            f"font-size: 11px; "
+            f"color: {theme_manager.color('accent')}; "
+            f"font-family: {MONO_FONT_STACK}; "
+            f"background: {theme_manager.color('accent_subtle')}; "
+            f"padding: 4px 12px; "
+            f"border-radius: 12px; "
+            f"border: 1px solid {theme_manager.color('border')};"
+        )
 
     def _setup_ui(self):
         """Build the UI layout with sidebar and main content area."""
@@ -79,19 +181,103 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status)
 
     def _build_welcome_view(self) -> QWidget:
-        """Build the default welcome view."""
+        """Build the default welcome view with centered logo and animated accents."""
         widget = QWidget()
+        widget.setStyleSheet(f"background-color: {theme_manager.color('bg_primary')};")
         layout = QVBoxLayout(widget)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        logo = QLabel("Quicko2")
-        logo.setStyleSheet(f"font-size: 48px; font-weight: bold; color: {COLORS['bg_tertiary']};")
-        layout.addWidget(logo, alignment=Qt.AlignmentFlag.AlignCenter)
-        
-        hint = QLabel("Select a chat or start a new one to begin.")
-        hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 14px;")
-        layout.addWidget(hint, alignment=Qt.AlignmentFlag.AlignCenter)
-        
+        layout.setSpacing(16)
+
+        # Add top spacer
+        layout.addStretch(2)
+
+        # Owl mascot — properly aligned monospace ASCII art
+        # NOTE: letter-spacing must be 0 for monospace art to align correctly.
+        # Any positive letter-spacing shifts each character slightly, causing
+        # rows of different lengths to visually diverge.
+        owl_art = (
+            "  ╔═══════╗  \n"
+            "  ║ O   O ║  \n"
+            "  ║   v   ║  \n"
+            "  ║ ───── ║  \n"
+            "  ╚══╗ ╔══╝  \n"
+            "     ║ ║     \n"
+            "    ─╝ ╚─    "
+        )
+        self.cat_label = QLabel(owl_art)
+        self.cat_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cat_label.setStyleSheet(
+            f"font-family: {MONO_FONT_STACK}; "
+            f"font-size: 16px; "
+            f"color: {theme_manager.color('accent')}; "
+            f"line-height: 1.4; "
+            f"letter-spacing: 0px; "
+            f"background: transparent;"
+        )
+        layout.addWidget(self.cat_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        layout.addSpacing(8)
+
+        # App name — large gradient-like styled text
+        self.logo_label = QLabel("Quicko")
+        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.logo_label.setStyleSheet(
+            f"font-size: 56px; "
+            f"font-weight: 800; "
+            f"color: {theme_manager.color('accent')}; "
+            f"background: transparent; "
+            f"letter-spacing: -1px;"
+        )
+        # Add glow shadow effect
+        self.logo_glow = QGraphicsDropShadowEffect()
+        self.logo_glow.setBlurRadius(40)
+        self.logo_glow.setColor(QColor(theme_manager.color('accent')))
+        self.logo_glow.setOffset(0, 0)
+        self.logo_label.setGraphicsEffect(self.logo_glow)
+        layout.addWidget(self.logo_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Tagline
+        self.tagline = QLabel("Ephemeral · Encrypted · Instant")
+        self.tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.tagline.setStyleSheet(
+            f"color: {theme_manager.color('text_muted')}; "
+            f"font-size: 14px; "
+            f"font-weight: 400; "
+            f"letter-spacing: 3px; "
+            f"text-transform: uppercase; "
+            f"background: transparent;"
+        )
+        layout.addWidget(self.tagline, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        layout.addSpacing(32)
+
+        # Action hint with subtle styling
+        self.hint = QLabel("Press  ⌘N  to start a new conversation")
+        self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.hint.setStyleSheet(
+            f"color: {theme_manager.color('text_muted')}; "
+            f"font-size: 13px; "
+            f"background: {theme_manager.color('accent_subtle')}; "
+            f"padding: 10px 24px; "
+            f"border-radius: 20px; "
+            f"border: 1px solid {theme_manager.color('border')};"
+        )
+        layout.addWidget(self.hint, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Bottom spacer
+        layout.addStretch(3)
+
+        # Subtle version label
+        self.version_label = QLabel("v0.1.0 — Pre-release")
+        self.version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.version_label.setStyleSheet(
+            f"color: {theme_manager.color('text_muted')}; "
+            f"font-size: 11px; "
+            f"background: transparent; "
+            f"padding-bottom: 12px;"
+        )
+        layout.addWidget(self.version_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
         return widget
 
     def _build_chat_view(self) -> QWidget:
@@ -101,24 +287,21 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Header bar
-        header = QWidget()
-        header.setFixedHeight(64)
-        header.setStyleSheet(f"background-color: {COLORS['bg_secondary']}; border-bottom: 1px solid {COLORS['border']};")
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(20, 0, 20, 0)
+        # Header bar with gradient accent
+        self.chat_header = QWidget()
+        self.chat_header.setFixedHeight(60)
+        header_layout = QHBoxLayout(self.chat_header)
+        header_layout.setContentsMargins(24, 0, 24, 0)
 
         self.peer_name_label = QLabel("Chat")
-        self.peer_name_label.setStyleSheet(f"font-size: 16px; font-weight: 600; color: {COLORS['text_primary']};")
         header_layout.addWidget(self.peer_name_label)
 
         header_layout.addStretch()
 
         self.session_code_label = QLabel("")
-        self.session_code_label.setStyleSheet(f"font-size: 12px; color: {COLORS['text_muted']}; font-family: monospace; background: {COLORS['bg_tertiary']}; padding: 4px 8px; border-radius: 4px;")
         header_layout.addWidget(self.session_code_label)
 
-        layout.addWidget(header)
+        layout.addWidget(self.chat_header)
 
         # Message lists stack (one per session)
         self.message_stack = QStackedWidget()
