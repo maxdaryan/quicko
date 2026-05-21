@@ -13,56 +13,41 @@ class MessageBubble(QFrame):
 
     def __init__(self, text: str, is_sent: bool, timestamp: str = ""):
         super().__init__()
-        self.is_sent = is_sent
-        self._setup(text, is_sent, timestamp)
-        self.update_theme()
-        theme_manager.theme_changed.connect(self.update_theme)
-
-    def update_theme(self):
-        bg = theme_manager.color('message_sent') if self.is_sent else theme_manager.color('message_received')
+        self.setObjectName("MessageBubble")
+        self.setProperty("sent", str(is_sent).lower())
         
-        # Asymmetric border radius for a modern chat bubble look
-        if self.is_sent:
-            radius = "16px 16px 4px 16px"
-        else:
-            radius = "16px 16px 16px 4px"
-
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {bg};
-                border-radius: {radius};
-                padding: 10px 16px;
-                margin: 2px {"48px 2px 12px" if self.is_sent else "12px 2px 48px"};
-                border: 1px solid {theme_manager.color('border_subtle')};
-            }}
-        """)
-        
-        self.msg_label.setStyleSheet(
-            f"color: {theme_manager.color('text_primary')}; font-size: 14px; "
-            f"background: transparent; line-height: 1.4;"
-        )
-        self.time_label.setStyleSheet(
-            f"color: {theme_manager.color('text_muted')}; font-size: 10px; "
-            f"background: transparent;"
-        )
-
-    def _setup(self, text: str, is_sent: bool, timestamp: str):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(4)
 
         self.msg_label = QLabel(text)
+        self.msg_label.setObjectName("MessageText")
         self.msg_label.setWordWrap(True)
+        self.msg_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.msg_label)
 
         if not timestamp:
-            timestamp = QDateTime.currentDateTime().toString("hh:mm")
+            timestamp = QDateTime.currentDateTime().toString("HH:mm")
 
         self.time_label = QLabel(timestamp)
+        self.time_label.setObjectName("MessageTime")
+        self.time_label.setProperty("sent", str(is_sent).lower())
         self.time_label.setAlignment(
             Qt.AlignmentFlag.AlignRight if is_sent else Qt.AlignmentFlag.AlignLeft
         )
         layout.addWidget(self.time_label)
+        
+        # Alignment wrapper
+        self.wrapper = QWidget()
+        wrapper_layout = QHBoxLayout(self.wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        
+        if is_sent:
+            wrapper_layout.addStretch()
+            wrapper_layout.addWidget(self)
+        else:
+            wrapper_layout.addWidget(self)
+            wrapper_layout.addStretch()
 
 
 class MessageList(QScrollArea):
@@ -72,41 +57,26 @@ class MessageList(QScrollArea):
         super().__init__()
         self.setWidgetResizable(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setFrameShape(QFrame.Shape.NoFrame)
         
         self.container = QWidget()
         self.layout = QVBoxLayout(self.container)
         self.layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.layout.setSpacing(6)
-        self.layout.setContentsMargins(12, 12, 12, 12)
+        self.layout.setSpacing(2)
+        self.layout.setContentsMargins(16, 16, 16, 16)
         self.layout.addStretch()
         self.setWidget(self.container)
 
-        self.update_theme()
-        theme_manager.theme_changed.connect(self.update_theme)
-
-    def update_theme(self):
-        self.setStyleSheet(
-            f"background-color: {theme_manager.color('bg_primary')}; border: none;"
-        )
-        self.container.setStyleSheet("background: transparent;")
-
     def add_sent_message(self, text: str):
         bubble = MessageBubble(text, is_sent=True)
-        self.layout.insertWidget(self.layout.count() - 1, bubble)
-        # Use a timer to scroll after the layout updates
-        QTimer.singleShot(50, self._scroll_to_bottom)
+        self.layout.insertWidget(self.layout.count() - 1, bubble.wrapper)
+        QTimer.singleShot(10, self._scroll_to_bottom)
 
     def add_received_message(self, text: str, sender: str = ""):
         bubble = MessageBubble(text, is_sent=False)
-        self.layout.insertWidget(self.layout.count() - 1, bubble)
-        QTimer.singleShot(50, self._scroll_to_bottom)
+        self.layout.insertWidget(self.layout.count() - 1, bubble.wrapper)
+        QTimer.singleShot(10, self._scroll_to_bottom)
 
     def _scroll_to_bottom(self):
         sb = self.verticalScrollBar()
-        # Ensure scrollbar exists and can scroll
-        if sb.maximum() > 0:
-            self.anim = QPropertyAnimation(sb, b"value")
-            self.anim.setDuration(300)
-            self.anim.setStartValue(sb.value())
-            self.anim.setEndValue(sb.maximum())
-            self.anim.start()
+        sb.setValue(sb.maximum())

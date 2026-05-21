@@ -1,6 +1,6 @@
 """Connection status bar widget."""
 
-from PyQt6.QtWidgets import QStatusBar, QLabel, QHBoxLayout, QWidget
+from PyQt6.QtWidgets import QStatusBar, QLabel, QHBoxLayout, QWidget, QFrame
 from PyQt6.QtCore import Qt
 from ..theme import theme_manager
 
@@ -9,73 +9,59 @@ class ConnectionStatusBar(QStatusBar):
 
     def __init__(self):
         super().__init__()
-        self.setFixedHeight(28)
+        self.setFixedHeight(32)
+        self.setSizeGripEnabled(False)
         
         self.current_state = "disconnected"
-        self.current_message = "No active session"
+        self.current_message = "Ready"
         
-        # Left side: Connection status
-        self.status_container = QWidget()
-        status_layout = QHBoxLayout(self.status_container)
-        status_layout.setContentsMargins(12, 0, 8, 0)
-        status_layout.setSpacing(6)
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(16, 0, 16, 0)
+        layout.setSpacing(8)
         
-        self.dot = QLabel("[ ]")
-        status_layout.addWidget(self.dot)
+        # Indicator Dot
+        self.dot = QFrame()
+        self.dot.setFixedSize(8, 8)
+        self.dot.setObjectName("StatusDot")
+        layout.addWidget(self.dot)
 
         self.status_label = QLabel(self.current_message)
-        status_layout.addWidget(self.status_label)
+        self.status_label.setStyleSheet("font-size: 11px; font-weight: 500;")
+        layout.addWidget(self.status_label)
         
-        self.addWidget(self.status_container)
+        self.addWidget(container)
 
         # Right side: Security indicator
-        self.security_label = QLabel("E2E Encrypted")
+        self.security_label = QLabel("🔒 E2E Encrypted")
+        self.security_label.setStyleSheet(f"color: {theme_manager.color('text_muted')}; font-size: 10px; margin-right: 12px;")
         self.addPermanentWidget(self.security_label)
 
-        self.update_theme()
-        theme_manager.theme_changed.connect(self.update_theme)
+        self.set_status(self.current_state, self.current_message)
+        theme_manager.theme_changed.connect(self._on_theme_changed)
 
-    def update_theme(self):
-        self.setStyleSheet(f"""
-            QStatusBar {{
-                background-color: {theme_manager.color('bg_secondary')};
-                border-top: 1px solid {theme_manager.color('border')};
-            }}
-        """)
-        self.status_container.setStyleSheet("background: transparent;")
-        self.security_label.setStyleSheet(
-            f"color: {theme_manager.color('text_muted')}; font-size: 10px; "
-            f"background: transparent; padding-right: 12px; "
-            f"letter-spacing: 0.5px;"
-        )
+    def _on_theme_changed(self):
         self.set_status(self.current_state, self.current_message)
 
     def set_status(self, state: str, message: str = ""):
         self.current_state = state
-        self.current_message = message
+        self.current_message = message or "Ready"
         
-        status_colors = {
+        colors = {
             "connected": theme_manager.color('success'),
             "connecting": theme_manager.color('warning'),
             "disconnected": theme_manager.color('text_muted'),
             "error": theme_manager.color('error'),
         }
         
-        status_dots = {
-            "connected": "[+]",
-            "connecting": "[~]",
-            "disconnected": "[ ]",
-            "error": "[!]",
-        }
+        color = colors.get(state, theme_manager.color('text_muted'))
+        self.dot.setStyleSheet(f"background-color: {color}; border-radius: 4px;")
+        self.status_label.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: 500;")
+        self.status_label.setText(self.current_message)
         
-        color = status_colors.get(state, theme_manager.color('text_muted'))
-        dot_char = status_dots.get(state, "[ ]")
-        
-        self.dot.setText(dot_char)
-        self.dot.setStyleSheet(
-            f"font-size: 10px; color: {color}; background: transparent;"
-        )
-        self.status_label.setStyleSheet(
-            f"color: {color}; font-size: 11px; background: transparent;"
-        )
-        self.status_label.setText(message)
+        self.setStyleSheet(f"""
+            QStatusBar {{
+                background-color: {theme_manager.color('bg_primary')};
+                border-top: 1px solid {theme_manager.color('border')};
+            }}
+        """)

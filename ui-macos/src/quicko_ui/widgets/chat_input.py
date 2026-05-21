@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QTextEdit, QPushButton,
-    QGraphicsDropShadowEffect,
+    QGraphicsDropShadowEffect, QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -17,102 +17,65 @@ class ChatInput(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setFixedHeight(76)
+        self.setFixedHeight(84)
         self._setup_ui()
-        self.update_theme()
-        theme_manager.theme_changed.connect(self.update_theme)
 
-    def update_theme(self):
-        self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {theme_manager.color('bg_secondary')};
-                border-top: 1px solid {theme_manager.color('border')};
-            }}
-        """)
-        self.attach_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {theme_manager.color('bg_tertiary')};
-                color: {theme_manager.color('text_secondary')};
-                border-radius: 19px;
-                font-size: 20px;
-                font-weight: 500;
-                border: 1px solid {theme_manager.color('border')};
-            }}
-            QPushButton:hover {{
-                background-color: {theme_manager.color('bg_hover')};
-                color: {theme_manager.color('text_primary')};
-                border-color: {theme_manager.color('accent')};
-            }}
-        """)
-        self.text_input.setStyleSheet(f"""
-            QTextEdit {{
+    def _setup_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(20, 12, 20, 20)
+        layout.setSpacing(12)
+
+        # Container for the input to give it a border-less look within a surface
+        self.input_container = QFrame()
+        self.input_container.setObjectName("InputContainer")
+        self.input_container.setStyleSheet(f"""
+            #InputContainer {{
                 background-color: {theme_manager.color('bg_input')};
                 border: 1px solid {theme_manager.color('border')};
-                border-radius: 22px;
-                padding: 8px 18px;
-                font-size: 14px;
-                color: {theme_manager.color('text_primary')};
-            }}
-            QTextEdit:focus {{
-                border-color: {theme_manager.color('border_focus')};
-                background-color: {theme_manager.color('bg_surface')};
+                border-radius: 20px;
             }}
         """)
+        
+        container_layout = QHBoxLayout(self.input_container)
+        container_layout.setContentsMargins(4, 4, 4, 4)
+        container_layout.setSpacing(8)
+
+        # Attachment button
+        self.attach_btn = QPushButton("+")
+        self.attach_btn.setFixedSize(32, 32)
+        self.attach_btn.setProperty("secondary", "true")
+        self.attach_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.attach_btn.setStyleSheet("border-radius: 16px; font-size: 18px; font-weight: 400;")
+        container_layout.addWidget(self.attach_btn)
+
+        # Text input
+        self.text_input = QTextEdit()
+        self.text_input.setPlaceholderText("Message")
+        self.text_input.setFrameShape(QFrame.Shape.NoFrame)
+        self.text_input.setStyleSheet("background: transparent; border: none; padding: 4px; font-size: 14px;")
+        self.text_input.installEventFilter(self)
+        container_layout.addWidget(self.text_input)
+
+        # Send button
+        self.send_btn = QPushButton("↑") # Mac-style arrow
+        self.send_btn.setFixedSize(32, 32)
+        self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.send_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {theme_manager.color('accent')};
                 color: white;
-                border-radius: 22px;
-                font-size: 20px;
-                font-weight: bold;
+                border-radius: 16px;
+                font-size: 18px;
+                font-weight: 800;
             }}
             QPushButton:hover {{
                 background-color: {theme_manager.color('accent_hover')};
             }}
-            QPushButton:pressed {{
-                background-color: {theme_manager.color('accent_pressed')};
-            }}
         """)
-        # Update glow effect color
-        self.glow.setColor(QColor(theme_manager.color('accent')))
-
-    def _setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(10)
-
-        # Attachment button
-        self.attach_btn = QPushButton("+")
-        self.attach_btn.setFixedSize(38, 38)
-        self.attach_btn.setToolTip("Attach file")
-        self.attach_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        layout.addWidget(self.attach_btn)
-
-        # Text input
-        self.text_input = QTextEdit()
-        self.text_input.setPlaceholderText("Type a message...")
-        self.text_input.setFixedHeight(44)
-        self.text_input.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        # Install event filter so we capture key presses inside the QTextEdit.
-        # Overriding keyPressEvent on the container QWidget doesn't work because
-        # QTextEdit consumes its own key events before they bubble up.
-        self.text_input.installEventFilter(self)
-        layout.addWidget(self.text_input)
-
-        # Send button with glow
-        self.send_btn = QPushButton(">")
-        self.send_btn.setFixedSize(44, 44)
-        
-        # Glow effect
-        self.glow = QGraphicsDropShadowEffect()
-        self.glow.setBlurRadius(20)
-        self.glow.setOffset(0, 0)
-        self.send_btn.setGraphicsEffect(self.glow)
-        self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.send_btn.clicked.connect(self._on_send)
-        layout.addWidget(self.send_btn)
+        container_layout.addWidget(self.send_btn, alignment=Qt.AlignmentFlag.AlignBottom)
+
+        layout.addWidget(self.input_container)
 
     def _on_send(self):
         text = self.text_input.toPlainText().strip()
@@ -122,14 +85,9 @@ class ChatInput(QWidget):
             self.text_input.setFocus()
 
     def eventFilter(self, source, event):
-        """Intercept key events on the text input to implement Enter-to-send."""
         from PyQt6.QtCore import QEvent
         if source is self.text_input and event.type() == QEvent.Type.KeyPress:
-            modifiers = event.modifiers()
-            if (
-                event.key() == Qt.Key.Key_Return
-                and not (modifiers & Qt.KeyboardModifier.ShiftModifier)
-            ):
+            if event.key() == Qt.Key.Key_Return and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
                 self._on_send()
-                return True  # Consume event — don't insert newline
+                return True
         return super().eventFilter(source, event)
